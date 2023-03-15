@@ -1,6 +1,27 @@
 # streamlit-dashboards
-Streamlit dashboard examples - Twitter cashtags, StockTwits, WSB, Charts, SQL Pattern Scanner
+Streamlit Cognite dashboard examples
 
-## Tutorial Video
+## Streamlit links:
 
-https://www.youtube.com/watch?v=0ESc1bh3eIg
+https://streamlit.io/
+
+
+## Env Setup:
+
+```angular2html
+
+pyenv virtualenv venv
+pyenv activate venv
+pip install -r requirements.txt
+
+```
+
+Change utils/.env.example file name to .env and add in env variables
+
+## Run Instructions:
+
+```angular2html
+streamlit run dashboard.py 
+```
+
+

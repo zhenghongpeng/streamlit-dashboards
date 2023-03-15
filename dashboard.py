@@ -2,159 +2,68 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-import tweepy
-import config 
-import psycopg2, psycopg2.extras
-import plotly.graph_objects as go
+import os
+import sys
+from cognite.client.utils import datetime_to_ms
+from datetime import datetime
+from pathlib import Path
+import matplotlib.pyplot as plt
+import utils.auth as cauth
 
-auth = tweepy.OAuthHandler(config.TWITTER_CONSUMER_KEY, config.TWITTER_CONSUMER_SECRET)
-auth.set_access_token(config.TWITTER_ACCESS_TOKEN, config.TWITTER_ACCESS_TOKEN_SECRET)
-api = tweepy.API(auth)
 
-connection = psycopg2.connect(host=config.DB_HOST, database=config.DB_NAME, user=config.DB_USER, password=config.DB_PASS)
-cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
+# Create Cognite Client
+c = cauth.create_cognite_client('client-secret')
+print(c.login.status())
 
-option = st.sidebar.selectbox("Which Dashboard?", ('twitter', 'wallstreetbets', 'stocktwits', 'chart', 'pattern'), 3)
+option = st.sidebar.selectbox("Which Dashboard?", ('rop','machinereadings', 'mlresults', 'cognite'), 3)
 
 st.header(option)
 
-if option == 'twitter':
-    for username in config.TWITTER_USERNAMES:
-        user = api.get_user(username)
-        tweets = api.user_timeline(username)
+if option == 'machinereadings':
+    st.subheader("Machine Readings of equipments Sequence data")
 
-        st.subheader(username)
-        st.image(user.profile_image_url)
-        
-        for tweet in tweets:
-            if '$' in tweet.text:
-                words = tweet.text.split(' ')
-                for word in words:
-                    if word.startswith('$') and word[1:].isalpha():
-                        symbol = word[1:]
-                        st.write(symbol)
-                        st.write(tweet.text)
-                        st.image(f"https://finviz.com/chart.ashx?t={symbol}")
-
-if option == 'chart':
-    symbol = st.sidebar.text_input("Symbol", value='MSFT', max_chars=None, key=None, type='default')
-
-    data = pd.read_sql("""
-        select date(day) as day, open, high, low, close
-        from daily_bars
-        where stock_id = (select id from stock where UPPER(symbol) = %s) 
-        order by day asc""", connection, params=(symbol.upper(),))
-
-    st.subheader(symbol.upper())
-
-    fig = go.Figure(data=[go.Candlestick(x=data['day'],
-                    open=data['open'],
-                    high=data['high'],
-                    low=data['low'],
-                    close=data['close'],
-                    name=symbol)])
-
-    fig.update_xaxes(type='category')
-    fig.update_layout(height=700)
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.write(data)
+    c.data_sets.retrieve(external_id="rop_wells")
+    dataset_id =c.data_sets.retrieve(external_id="rop_wells").id
+    data_plot = c.sequences.data.retrieve_dataframe(external_id="well5832_sequence",start=0,end=-1)
+    st.write(data_plot)
 
 
-if option == 'wallstreetbets':
-    num_days = st.sidebar.slider('Number of days', 1, 30, 3)
 
-    cursor.execute("""
-        SELECT COUNT(*) AS num_mentions, symbol
-        FROM mention JOIN stock ON stock.id = mention.stock_id
-        WHERE date(dt) > current_date - interval '%s day'
-        GROUP BY stock_id, symbol   
-        HAVING COUNT(symbol) > 10
-        ORDER BY num_mentions DESC
-    """, (num_days,))
+if option == 'mlresults':
+    st.subheader("ROP Prediction Result")
 
-    counts = cursor.fetchall()
-    for count in counts:
-        st.write(count)
-    
-    cursor.execute("""
-        SELECT symbol, message, url, dt, username
-        FROM mention JOIN stock ON stock.id = mention.stock_id
-        ORDER BY dt DESC
-        LIMIT 100
-    """)
+    c.data_sets.retrieve(external_id="rop_wells")
+    dataset_id =c.data_sets.retrieve(external_id="rop_wells").id
+    data_plot = c.sequences.data.retrieve_dataframe(external_id="well5832_sequence_model",start=0,end=-1)
+    st.write(data_plot)
 
-    mentions = cursor.fetchall()
-    for mention in mentions:
-        st.text(mention['dt'])
-        st.text(mention['symbol'])
-        st.text(mention['message'])
-        st.text(mention['url'])
-        st.text(mention['username'])
+    st.line_chart(data=data_plot, x="Depth(m)")
 
-    rows = cursor.fetchall()
+if option == 'cognite':
+    st.subheader("Cognite Utah Well Site")
 
-    st.write(rows)
+    for index in range(3,6):
+        file_obj =  c.files.retrieve(external_id=f"rop_well5832_energies-15-04288-g00{index}.png")
+        st.write(file_obj)
+        ## Lord Image to Memory
+        file = c.files.download_bytes(id=file_obj.id)
+
+        st.image(file)
+
+if option == 'rop':
+    st.subheader("Cognite Well Architecture")
+
+    file_obj =  c.files.retrieve(id=3791052376112203)
+    st.write(file_obj)
+    ## Lord Image to Memory
+    file = c.files.download_bytes(id=file_obj.id)
+
+    st.image(file)
 
 
-if option == 'pattern':
-    pattern = st.sidebar.selectbox(
-        "Which Pattern?",
-        ("engulfing", "threebar")
-    )
-
-    if pattern == 'engulfing':
-        cursor.execute("""
-            SELECT * 
-            FROM ( 
-                SELECT day, open, close, stock_id, symbol, 
-                LAG(close, 1) OVER ( PARTITION BY stock_id ORDER BY day ) previous_close, 
-                LAG(open, 1) OVER ( PARTITION BY stock_id ORDER BY day ) previous_open 
-                FROM daily_bars
-                JOIN stock ON stock.id = daily_bars.stock_id
-            ) a 
-            WHERE previous_close < previous_open AND close > previous_open AND open < previous_close
-            AND day = '2021-02-18'
-        """)
-
-    if pattern == 'threebar':
-        cursor.execute("""
-            SELECT * 
-            FROM ( 
-                SELECT day, close, volume, stock_id, symbol, 
-                LAG(close, 1) OVER ( PARTITION BY stock_id ORDER BY day ) previous_close, 
-                LAG(volume, 1) OVER ( PARTITION BY stock_id ORDER BY day ) previous_volume, 
-                LAG(close, 2) OVER ( PARTITION BY stock_id ORDER BY day ) previous_previous_close, 
-                LAG(volume, 2) OVER ( PARTITION BY stock_id ORDER BY day ) previous_previous_volume, 
-                LAG(close, 3) OVER ( PARTITION BY stock_id ORDER BY day ) previous_previous_previous_close, 
-                LAG(volume, 3) OVER ( PARTITION BY stock_id ORDER BY day ) previous_previous_previous_volume 
-            FROM daily_bars 
-            JOIN stock ON stock.id = daily_bars.stock_id) a 
-            WHERE close > previous_previous_previous_close 
-                AND previous_close < previous_previous_close 
-                AND previous_close < previous_previous_previous_close 
-                AND volume > previous_volume 
-                AND previous_volume < previous_previous_volume 
-                AND previous_previous_volume < previous_previous_previous_volume 
-                AND day = '2021-02-19'
-        """)
-
-    rows = cursor.fetchall()
-
-    for row in rows:
-        st.image(f"https://finviz.com/chart.ashx?t={row['symbol']}")
 
 
-if option == 'stocktwits':
-    symbol = st.sidebar.text_input("Symbol", value='AAPL', max_chars=5)
 
-    r = requests.get(f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json")
 
-    data = r.json()
 
-    for message in data['messages']:
-        st.image(message['user']['avatar_url'])
-        st.write(message['user']['username'])
-        st.write(message['created_at'])
-        st.write(message['body'])
+
