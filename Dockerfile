@@ -5,4 +5,4 @@ WORKDIR /app/streamlit-dashboard
 copy ${PWD} /app/streamlit-dashboard
 run pip3 install -r /app/streamlit-dashboard/requirements.txt
 ENTRYPOINT ["streamlit", "run"]
-CMD ["/app/streamlit-dashboard/dashboard.py"]
+CMD ["/app/streamlit-dashboard/app.py"]

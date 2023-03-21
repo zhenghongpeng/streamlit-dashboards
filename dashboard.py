@@ -8,13 +8,23 @@ from datetime import datetime, timedelta
 from cognite.client.utils import datetime_to_ms, ms_to_datetime
 from pathlib import Path
 import utils.auth as cauth
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 
 # Create Cognite Client
 c = cauth.create_cognite_client('client-secret')
 print(c.login.status())
 
-option = st.sidebar.selectbox("Dashboard Cognite ML Models", ('Utah Well Site', 'welldiagram',
-                              'machinereadings', 'mlresults', "cp_well", 'cp_well_sensor_list', 'cp_well_maintenance_prediction'), 3)
+
+option = st.sidebar.selectbox("Dashboard Cognite ML Models",
+                              ('Utah Well Site',
+                               'welldiagram',
+                               'machinereadings',
+                               'mlresults',
+                               "cp_well", 'cp_well_sensor_list',
+                               'cp_well_maintenance_prediction',
+                               'grafana dashboard'), 3)
 
 st.header(option)
 
@@ -35,7 +45,24 @@ if option == 'mlresults':
         external_id="well5832_sequence_model", start=0, end=-1)
     st.write(data_plot)
 
-    st.line_chart(data=data_plot, x="Depth(m)")
+    st.line_chart(data=data_plot, x="Depth(m)", width=900, height=450)
+
+    fig, ax = plt.subplots(figsize=(15, 25))
+
+    ax.plot(data_plot['ROP(1 m)'].values.reshape(-1, 1),
+            data_plot['Depth(m)'].values.reshape(-1, 1), 'r', label='ROP')
+    ax.scatter(data_plot['prediction'].values.reshape(-1, 1),
+               data_plot['Depth(m)'].values.reshape(-1, 1), label='predicted ROP')
+    ay = plt.gca()
+    ay.set_ylim(ay.get_ylim()[::-1])
+    plt.ylabel('Depth (ft)')
+    plt.xlabel('Rate of penetration (m/hr)')
+    plt.title('Rate of penetration prediction')
+    plt.legend(loc="best")
+    depth = [depth for depth in range(200, 2400, 200)]
+    for i in range(len(depth)):
+        plt.axhline(depth[i], color='black')
+    plt.show()
 
 if option == 'Utah Well Site':
     st.subheader("Utah Forge Well Site")
@@ -138,3 +165,12 @@ if option == 'cp_well_sensor_list':
     res_ts = c.time_series.search(name="sensor", limit=200)
     df_ts = res_ts.to_pandas()
     st.write(df_ts)
+
+
+if option == 'grafana dashboard':
+    st.subheader("Grafana Dashboard Time Series Data")
+    html_string = """
+                    <iframe src="http://localhost:3000/d-solo/KacpU--Vk/accenture-tiger?orgId=1&from=1673924361000&to=1674615894000&panelId=2" width="900" height="400" frameborder="0"></iframe>
+                  """
+
+    st.markdown(html_string, unsafe_allow_html=True)
